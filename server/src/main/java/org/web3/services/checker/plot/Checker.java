@@ -20,7 +20,7 @@ public class Checker implements CheckerFunction{
     }
 
     private boolean secondQuarterTester(final float x, final float y, final float r) {
-        return y >= (-r * 0.5f + 0.5f * x);
+        return x >= -r * 0.5f && y >= -x;
     }
 
     private boolean thirdQuarterTester(final float x, final float y,final float r) {

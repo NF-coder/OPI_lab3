@@ -1,0 +1,242 @@
+plugins {
+    id 'java'
+    id 'war'
+}
+
+apply from: 'params.gradle'
+
+repositories {
+    mavenCentral()
+}
+
+tasks.named('processResources') {
+    enabled = false
+}
+tasks.named('compileJava') {
+    enabled = false
+}
+tasks.named('classes') {
+    enabled = false
+}
+tasks.named('compileTestJava') {
+    enabled = false
+}
+tasks.named('processTestResources') {
+    enabled = false
+}
+tasks.named('testClasses') {
+    enabled = false
+}
+tasks.named('clean') {
+    enabled = false
+}
+tasks.named('build') {
+    enabled = false
+}
+
+dependencies {
+    annotationProcessor 'org.projectlombok:lombok:1.18.42'
+
+    compileOnly 'org.projectlombok:lombok:1.18.42'
+    compileOnly 'org.hibernate.orm:hibernate-core:7.1.7.Final'
+    compileOnly 'org.slf4j:slf4j-api:2.0.17'
+    compileOnly 'jakarta.enterprise:jakarta.enterprise.cdi-api:5.0.0-M1'
+
+    implementation 'jakarta.xml.ws:jakarta.xml.ws-api:3.0.1'
+    implementation 'jakarta.persistence:jakarta.persistence-api:3.2.0'
+    implementation 'org.postgresql:postgresql:42.7.8'
+    implementation 'org.springframework.security:spring-security-crypto:6.5.6'
+    implementation 'jakarta.annotation:jakarta.annotation-api:3.0.0'
+    implementation 'com.auth0:java-jwt:4.5.1'
+    implementation 'jakarta.validation:jakarta.validation-api:3.0.2'
+
+    runtimeOnly 'org.hibernate.validator:hibernate-validator:8.0.1.Final'
+    runtimeOnly 'org.glassfish:jakarta.el:4.0.2'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.0'
+    testImplementation 'org.junit.jupiter:junit-jupiter-params:5.10.0'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.0'
+    testRuntimeOnly 'org.junit.platform:junit-platform-console-standalone:1.10.0'
+}
+
+def classesDir = layout.buildDirectory.dir('classes/main')
+def testClassesDir = layout.buildDirectory.dir('classes/test')
+def resourcesOutDir = layout.buildDirectory.dir('resources/main')
+def native2AsciiOutDir = layout.buildDirectory.dir('native2ascii')
+
+tasks.register('clean2') {
+    doLast {
+        delete layout.buildDirectory
+    }
+}
+
+tasks.register('compile', JavaCompile) {
+    source = sourceSets.main.java
+
+    sourceCompatibility = appConf.javaVersion.toString()
+    targetCompatibility = appConf.javaVersion.toString()
+
+    classpath = sourceSets.main.compileClasspath
+    destinationDirectory.set(classesDir)
+
+    options.encoding = appConf.encoding
+    options.release.set(appConf.javaVersion as Integer)
+    options.annotationProcessorPath = configurations.annotationProcessor
+}
+
+tasks.register('copyResources', Copy) {
+    from(appConf.resourcesDir) {
+        exclude 'localization/*.properties'
+    }
+    into(resourcesOutDir)
+}
+
+tasks.register('native2ascii') {
+    def sourceDir = file('src/main/resources/localization')
+    def convertedDir = native2AsciiOutDir.map { it.dir('localization') }
+    def targetDir = resourcesOutDir.map { it.dir('localization') }
+
+    inputs.files(fileTree(sourceDir) {
+        include '*.properties'
+    })
+    outputs.dir(convertedDir)
+    outputs.dir(targetDir)
+
+    doLast {
+        delete convertedDir
+        delete targetDir
+        file(convertedDir).mkdirs()
+        file(targetDir).mkdirs()
+
+        if (!sourceDir.exists()) {
+            return
+        }
+
+        sourceDir.eachFileMatch(~/.*\.properties/) { sourceFile ->
+            def convertedFile = new File(file(convertedDir), sourceFile.name)
+            convertedFile.text = sourceFile.getText(appConf.encoding.toString()).collect { ch ->
+                ch.charAt(0) > 127 ? String.format('\\u%04x', ch.charAt(0) as int) : ch
+            }.join('')
+            copy {
+                from convertedFile
+                into targetDir
+            }
+        }
+    }
+}
+
+tasks.register('build2', War) {
+    dependsOn tasks.named('compile')
+    dependsOn tasks.named('copyResources')
+    dependsOn tasks.named('native2ascii')
+
+    archiveFileName.set("${packagingConf.archiveName}.war")
+    destinationDirectory.set(layout.buildDirectory.dir("libs"))
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    classpath(configurations.runtimeClasspath)
+    webXml = file('src/main/config/WEB-INF/web.xml')
+
+    from(classesDir) {
+        into 'WEB-INF/classes'
+    }
+
+    from(resourcesOutDir) {
+        into 'WEB-INF/classes'
+    }
+
+    from('src/main/config') {
+        include 'WEB-INF/**'
+        exclude 'WEB-INF/web.xml'
+    }
+
+    manifest {
+        attributes(
+                'Main-Class': appConf.mainClass,
+                'Version': appConf.version
+        )
+    }
+}
+
+tasks.register('compileTests', JavaCompile) {
+    dependsOn tasks.named('compile')
+    dependsOn tasks.named('copyResources')
+    dependsOn tasks.named('native2ascii')
+
+    source = sourceSets.test.java
+    classpath = sourceSets.test.compileClasspath +
+                    files(classesDir, resourcesOutDir)
+
+    destinationDirectory.set(testClassesDir)
+
+    sourceCompatibility = appConf.javaVersion.toString()
+    targetCompatibility = appConf.javaVersion.toString()
+
+    options.encoding = appConf.encoding
+    options.release.set(appConf.javaVersion as Integer)
+}
+
+tasks.register('test2', JavaExec) {
+    dependsOn tasks.named('build2')
+    dependsOn tasks.named('compileTests')
+
+    mainClass.set('org.junit.platform.console.ConsoleLauncher')
+    classpath = files(testClassesDir, classesDir, resourcesOutDir) + configurations.testRuntimeClasspath
+    args 'execute', '--scan-classpath'
+}
+
+tasks.register('music', Exec) {
+    dependsOn tasks.named('build2')
+    commandLine 'paplay', musicConf.file.absolutePath
+    ignoreExitValue = true
+}
+
+tasks.register('team') {
+    doLast {
+        def outDir = file("$buildDir/team")
+        def workDir = file("$buildDir/team-work")
+
+        delete outDir, workDir
+        outDir.mkdirs()
+        workDir.mkdirs()
+
+        (1..3).each { i ->
+            def shortName = "rev-${i}"
+
+            def zipFile = file("$workDir/${shortName}.zip")
+            def snapshotDir = file("$workDir/${shortName}")
+            def serverDir = file("$snapshotDir/server")
+
+            // 1. archive commit
+            exec {
+                commandLine 'git',
+                        'archive',
+                        '--format=zip',
+                        "--output=${zipFile.absolutePath}",
+                        "HEAD~${i}"
+            }
+
+            // 2. unzip snapshot
+            copy {
+                from zipTree(zipFile)
+                into snapshotDir
+            }
+
+            // 3. build snapshot
+            exec {
+                workingDir serverDir
+                commandLine './gradlew', 'build'
+            }
+
+            // 4. collect jar
+            copy {
+                from("$serverDir/build/libs")
+                include '*.jar'
+                into outDir
+                rename { name ->
+                    "${shortName}-${name}"
+                }
+            }
+        }
+    }
+}

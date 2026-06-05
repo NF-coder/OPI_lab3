@@ -1,0 +1,26 @@
+ext {
+    appConf = [
+            group: projectGroup,
+            version: projectVersion,
+            mainClass: mainClass,
+            javaVersion: javaVersion,
+            encoding: encoding,
+            srcDir: file('src/main/java'),
+            testDir: file('src/test/java'),
+            resourcesDir: file('src/main/resources'),
+    ]
+    musicConf = [
+            file: file('/usr/share/sounds/freedesktop/stereo/alarm-clock-elapsed.oga')
+    ]
+    packagingConf = [
+            archiveName: 'web3'
+    ]
+    repoConf = [
+            diffClasses: [
+                    'src/main/java/org/web3/services/checker/plot/Checker.java',
+                    'src/main/java/org/web3/services/checker/plot/utils/PlotUtils.java'
+            ],
+            repoUrl: 'file:///home/nf/Рабочий стол/итмо/OPI_lab3/OPI_lab3/svn',
+            teamZipName: 'team.zip',
+    ]
+}
