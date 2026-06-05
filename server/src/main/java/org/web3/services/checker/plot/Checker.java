@@ -31,3 +31,4 @@ public class Checker implements CheckerFunction{
         return Math.sqrt(x * x + y * y) <= r * 0.5f;
     }
 }
+
